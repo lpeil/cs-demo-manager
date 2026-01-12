@@ -69,7 +69,7 @@ function getHintFromError({ code, message }: ConnectDatabaseError) {
       return <DatabaseSchemaVersionMismatch />;
   }
 
-  if (message.includes('ECONNREFUSED')) {
+  if (message?.includes('ECONNREFUSED')) {
     return (
       <p>
         <Trans>

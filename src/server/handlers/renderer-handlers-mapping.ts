@@ -62,7 +62,7 @@ import { getDatabaseSizeHandler } from './renderer-process/database/get-database
 import type { OptimizeDatabasePayload } from './renderer-process/database/optimize-database-handler';
 import { optimizeDatabaseHandler } from './renderer-process/database/optimize-database-handler';
 import { fetchPlayersHandler } from './renderer-process/player/fetch-players-table-handler';
-import type { WatchDemoPayload } from './renderer-process/counter-strike/watch-demo-handler';
+import type { WatchDemoPayload, WatchDemoResponse } from './renderer-process/counter-strike/watch-demo-handler';
 import { watchDemoHandler } from './renderer-process/counter-strike/watch-demo-handler';
 import {
   watchPlayerHighlightsHandler,
@@ -228,6 +228,13 @@ import { deleteRenownAccountHandler } from './renderer-process/renown/delete-ren
 import { updateCurrentRenownAccountHandler } from './renderer-process/renown/update-current-renown-account-handler';
 import type { RenownMatch } from 'csdm/common/types/renown-match';
 import { fetchLastRenownMatchesHandler } from './renderer-process/renown/fetch-last-renown-matches-handler';
+import { loginHandler, type LoginPayload, type LoginResponse } from './renderer-process/auth/login-handler';
+import { logoutHandler, type LogoutPayload } from './renderer-process/auth/logout-handler';
+import {
+  checkAuthHandler,
+  type CheckAuthPayload,
+  type CheckAuthResponse,
+} from './renderer-process/auth/check-auth-handler';
 
 export interface RendererMessageHandlers {
   [RendererClientMessageName.InitializeApplication]: Handler<void, InitializeApplicationSuccessPayload>;
@@ -305,7 +312,7 @@ export interface RendererMessageHandlers {
   [RendererClientMessageName.FetchMatchFlashbangMatrixRows]: Handler<string, FlashbangMatrixRow[]>;
   [RendererClientMessageName.FetchMatchDuelsMatrixRows]: Handler<string, DuelMatrixRow[]>;
   [RendererClientMessageName.FetchMatchGrenadesThrow]: Handler<string, GrenadeThrow[]>;
-  [RendererClientMessageName.WatchDemo]: Handler<WatchDemoPayload, WatchDemoErrorPayload | undefined>;
+  [RendererClientMessageName.WatchDemo]: Handler<WatchDemoPayload, WatchDemoErrorPayload | WatchDemoResponse | void>;
   [RendererClientMessageName.StartCounterStrike]: Handler<
     StartCounterStrikePayload,
     CounterStrikeErrorPayload | undefined
@@ -355,6 +362,9 @@ export interface RendererMessageHandlers {
   [RendererClientMessageName.DeleteRenownAccount]: Handler<string, RenownAccount[]>;
   [RendererClientMessageName.UpdateCurrentRenownAccount]: Handler<string, RenownAccount[]>;
   [RendererClientMessageName.CapturePlayerView]: Handler<Game, CapturePlayerViewPayload>;
+  [RendererClientMessageName.Login]: Handler<LoginPayload, LoginResponse>;
+  [RendererClientMessageName.Logout]: Handler<LogoutPayload>;
+  [RendererClientMessageName.CheckAuth]: Handler<CheckAuthPayload, CheckAuthResponse>;
 }
 
 // Mapping between message names and server handlers sent from the Electron renderer process to the WebSocket server.
@@ -469,4 +479,7 @@ export const rendererHandlers: RendererMessageHandlers = {
   [RendererClientMessageName.UpdateCurrentRenownAccount]: updateCurrentRenownAccountHandler,
   [RendererClientMessageName.WatchVideoSequences]: watchVideoSequencesHandler,
   [RendererClientMessageName.CapturePlayerView]: capturePlayerViewHandler,
+  [RendererClientMessageName.Login]: loginHandler,
+  [RendererClientMessageName.Logout]: logoutHandler,
+  [RendererClientMessageName.CheckAuth]: checkAuthHandler,
 };

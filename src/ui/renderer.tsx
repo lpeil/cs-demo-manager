@@ -1,3 +1,5 @@
+// Importar API antes de usar
+import './api/csdm-api';
 globalThis.logger = window.csdm.logger;
 document.title = 'CS Demo Manager';
 import React, { type ErrorInfo } from 'react';

@@ -2,11 +2,10 @@
 import './load-dot-env-variables.mjs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { spawn } from 'node:child_process';
 import fs from 'fs-extra';
+import { spawn } from 'node:child_process';
 import { WebSocketServer as WSServer } from 'ws';
 import { createServer, createLogger } from 'vite';
-import electronPath from 'electron';
 import esbuild from 'esbuild';
 import chokidar from 'chokidar';
 import nativeNodeModulesPlugin from './esbuild-native-node-modules-plugin.mjs';
@@ -16,15 +15,8 @@ const rootFolderPath = fileURLToPath(new URL('..', import.meta.url));
 const outFolderPath = path.resolve(rootFolderPath, 'out');
 const srcFolderPath = path.resolve(rootFolderPath, 'src');
 
-/** @type {import('child_process').ChildProcessWithoutNullStreams | null} */
-let electronProcess = null;
-
 const devLogger = createLogger('info', {
   prefix: '[dev]',
-});
-
-const mainProcessLogger = createLogger('info', {
-  prefix: '[main]',
 });
 
 const commonDefine = {
@@ -32,56 +24,23 @@ const commonDefine = {
   IS_DEV: 'true',
 };
 
-const stderrIgnorePatterns = [
-  /ExtensionLoadWarning/, // DevTools extension warnings
-];
-
-function startElectron() {
-  devLogger.info('Starting Electron...', { timestamp: true });
-  // You can add app startup arguments in the following array for debugging, example: '--start-path=downloads'
-  const args = [path.join(outFolderPath, 'main.js')];
-  electronProcess = spawn(String(electronPath), args);
-  electronProcess.stdout.on('data', (data) => {
-    mainProcessLogger.info(data.toString(), { timestamp: true });
-  });
-  electronProcess.stderr.on('data', (data) => {
-    const string = data.toString().trim();
-    const shouldIgnore = stderrIgnorePatterns.some((pattern) => {
-      return pattern.test(string);
-    });
-    if (shouldIgnore) {
-      return;
-    }
-    mainProcessLogger.error(string, { timestamp: true });
-  });
-  electronProcess.on('exit', (code) => {
-    devLogger.info(`Electron process exited with code : ${code}`, { timestamp: true });
-    if (code === 0) {
-      process.exit(0);
-    }
-  });
-  electronProcess.on('error', (error) => {
-    devLogger.error('Electron process error', { timestamp: true });
-    devLogger.error(error, { timestamp: true });
-  });
-}
-
-function killElectronProcess() {
-  if (electronProcess !== null) {
-    electronProcess.kill('SIGKILL');
-    electronProcess = null;
-  }
-}
-
-function restartElectron() {
-  killElectronProcess();
-  startElectron();
-}
-
 async function buildAndWatchRendererProcessBundle() {
   /** @type {import('vite').InlineConfig} */
   const serverConfig = {
     mode: 'development',
+    server: {
+      port: 5173, // Porta do Vite dev server
+      proxy: {
+        '/api': {
+          target: 'http://localhost:3000',
+          changeOrigin: true,
+        },
+        '/ws': {
+          target: 'ws://localhost:3000',
+          ws: true,
+        },
+      },
+    },
     build: {
       emptyOutDir: false,
       sourcemap: true,
@@ -98,15 +57,46 @@ async function buildAndWatchRendererProcessBundle() {
   await devServer.listen();
   const { port } = devServer.config.server;
   process.env.VITE_DEV_SERVER_URL = `http://localhost:${port}/`;
+  devLogger.info(`Vite dev server listening on http://localhost:${port}/`, { timestamp: true });
 }
 
-async function buildWebSocketProcessBundle() {
+// Plugin to resolve csdm alias and mark npm packages as external
+const markNpmPackagesAsExternal = {
+  name: 'mark-npm-packages-as-external',
+  setup(build) {
+    // First, resolve csdm alias - this must run before the general npm package filter
+    build.onResolve({ filter: /^csdm/ }, (args) => {
+      const pathWithoutAlias = args.path.replace(/^csdm/, '');
+      let resolvedPath = path.join(srcFolderPath, pathWithoutAlias);
+      // Add .ts extension if no extension is present
+      if (!path.extname(resolvedPath)) {
+        resolvedPath += '.ts';
+      }
+      return {
+        path: resolvedPath,
+        namespace: 'file',
+      };
+    });
+    
+    // Then, mark all other npm packages as external
+    build.onResolve({ filter: /^[^./]|^\.[^./]|^\.\.[^/]/ }, (args) => {
+      // Don't mark 'csdm' as external - it's already resolved above
+      if (args.path.startsWith('csdm')) {
+        return;
+      }
+      return { path: args.path, external: true };
+    });
+  },
+};
+
+async function buildServerProcessBundle() {
   const result = await esbuild.build({
-    entryPoints: [path.join(srcFolderPath, 'server/server.ts')],
+    entryPoints: [path.join(srcFolderPath, 'server/start-server.ts')],
     outfile: path.join(outFolderPath, 'server.js'),
     bundle: true,
     sourcemap: 'linked',
     platform: 'node',
+    format: 'esm', // Use ESM format to support import.meta.url
     target: `node${node}`,
     metafile: true,
     external: [
@@ -120,107 +110,29 @@ async function buildWebSocketProcessBundle() {
     alias: {
       // Force fdir to use the CJS version to avoid createRequire(import.meta.url) not working
       fdir: './node_modules/fdir/dist/index.cjs',
+      // csdm alias is handled by the markNpmPackagesAsExternal plugin
     },
-    plugins: [
-      nativeNodeModulesPlugin,
-      {
-        name: 'restart-electron-on-build-start',
-        setup(build) {
-          build.onStart(() => {
-            // Kill Electron process on build starts to make sure the process releases .node files lock.
-            killElectronProcess();
-          });
-        },
-      },
-    ],
+    plugins: [nativeNodeModulesPlugin, markNpmPackagesAsExternal],
   });
 
   const files = Object.keys(result.metafile.inputs);
   return files;
 }
 
-async function buildMainProcessBundle() {
-  const result = await esbuild.build({
-    entryPoints: [path.join(srcFolderPath, 'electron-main/main.ts')],
-    outfile: path.join(outFolderPath, 'main.js'),
-    bundle: true,
-    sourcemap: 'linked',
-    platform: 'node',
-    target: `node${node}`,
-    external: ['electron'],
-    define: commonDefine,
-    metafile: true,
-    plugins: [nativeNodeModulesPlugin],
-  });
 
-  async function copyTranslations() {
-    const translationsFolder = path.resolve(srcFolderPath, 'electron-main', 'translations');
-    const outputFolder = path.resolve(outFolderPath, 'translations');
-    await fs.copy(translationsFolder, outputFolder);
-  }
-
-  await copyTranslations();
-
-  const files = Object.keys(result.metafile.inputs);
-  return files;
-}
-
-async function buildPreloadBundle() {
-  const result = await esbuild.build({
-    entryPoints: [path.join(srcFolderPath, 'preload/preload.ts')],
-    outfile: path.join(outFolderPath, 'preload.js'),
-    bundle: true,
-    sourcemap: 'inline',
-    platform: 'node',
-    target: `node${node}`,
-    external: ['electron'],
-    define: {
-      ...commonDefine,
-    },
-    metafile: true,
-    plugins: [nativeNodeModulesPlugin],
-  });
-
-  const files = Object.keys(result.metafile.inputs);
-  return files;
-}
-
-async function buildDevPreloadBundle() {
-  const result = await esbuild.build({
-    entryPoints: [path.join(srcFolderPath, 'server/dev-preload.ts')],
-    outfile: path.join(outFolderPath, 'dev-preload.js'),
-    bundle: true,
-    platform: 'node',
-    target: `node${node}`,
-    external: ['electron'],
-    metafile: true,
-  });
-
-  const files = Object.keys(result.metafile.inputs);
-  return files;
-}
-
-async function copyDevRendererHtml() {
-  const htmlFilePath = path.resolve(srcFolderPath, 'server', 'dev.html');
-  const outHtmlFilePath = path.resolve(outFolderPath, 'dev.html');
-  await fs.copyFile(htmlFilePath, outHtmlFilePath);
-}
 
 async function buildMainProcessBundles() {
-  const webSocketFiles = await buildWebSocketProcessBundle();
-  const mainFiles = await buildMainProcessBundle();
-  const preloadFiles = await buildPreloadBundle();
-  const devPreloadFiles = await buildDevPreloadBundle();
-  const files = [...new Set([...webSocketFiles, ...mainFiles, ...preloadFiles, ...devPreloadFiles])];
+  const serverFiles = await buildServerProcessBundle();
+  const files = [...new Set([...serverFiles])];
 
   return files;
 }
 
 /**
  * We don't use the esbuild watch feature because (as of version 0.12.9) it watches for the whole folder tree,
- * even parent folders. It makes restarting Electron when it's not necessary.
+ * even parent folders.
  * Related issue https://github.com/evanw/esbuild/issues/1113
- * Instead we use chokidar to rebuild bundles and restart Electron when a file that requires a full Electron restart changed.
+ * Instead we use chokidar to rebuild bundles when files change.
  */
 async function buildAndWatchMainProcessBundles() {
   const files = await buildMainProcessBundles();
@@ -229,8 +141,7 @@ async function buildAndWatchMainProcessBundles() {
     try {
       await buildMainProcessBundles();
     } catch (error) {
-    } finally {
-      restartElectron();
+      // Ignore errors during watch
     }
   });
 }
@@ -263,18 +174,72 @@ async function assertWebSocketServerIsAvailable() {
   });
 }
 
+let httpServerProcess = null;
+
+async function startHttpServer() {
+  const serverPath = path.join(outFolderPath, 'server.js');
+  
+  // Verificar se o servidor foi buildado
+  if (!(await fs.pathExists(serverPath))) {
+    devLogger.warn('Server not built yet, building...', { timestamp: true });
+    await buildMainProcessBundles();
+  }
+
+  // Iniciar servidor HTTP em processo separado
+  httpServerProcess = spawn('node', [serverPath], {
+    stdio: 'inherit',
+    env: {
+      ...process.env,
+      PROCESS_NAME: 'server',
+    },
+  });
+
+  httpServerProcess.on('error', (error) => {
+    devLogger.error('Failed to start HTTP server:', error, { timestamp: true });
+  });
+
+  httpServerProcess.on('exit', (code) => {
+    if (code !== 0 && code !== null) {
+      devLogger.error(`HTTP server exited with code ${code}`, { timestamp: true });
+    }
+  });
+
+  return httpServerProcess;
+}
+
 try {
   await fs.ensureDir(outFolderPath);
   await assertWebSocketServerIsAvailable();
 
-  await Promise.all([buildAndWatchRendererProcessBundle(), buildAndWatchMainProcessBundles(), copyDevRendererHtml()]);
-  startElectron();
+  // Buildar bundles primeiro
+  await buildMainProcessBundles();
+  
+  // Iniciar servidor HTTP
+  const httpServerProcess = await startHttpServer();
+  
+  // Aguardar um pouco para o servidor iniciar
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+
+  // Iniciar Vite dev server
+  await buildAndWatchRendererProcessBundle();
+  
+  devLogger.info('Development environment ready!', { timestamp: true });
+  devLogger.info('  - HTTP Server: http://localhost:3000', { timestamp: true });
+  devLogger.info('  - Vite Dev Server: http://localhost:5173', { timestamp: true });
+  devLogger.info('  - WebSocket Server: ws://localhost:4574', { timestamp: true });
+  devLogger.info('Open http://localhost:5173 in your browser.', { timestamp: true });
+
+  process.on('SIGINT', () => {
+    if (httpServerProcess) {
+      httpServerProcess.kill();
+    }
+    process.exit(0);
+  });
 } catch (error) {
   devLogger.error(error, { timestamp: true });
   process.exit(1);
 }
 
 process.on('SIGINT', () => {
-  killElectronProcess();
   process.exit(0);
 });

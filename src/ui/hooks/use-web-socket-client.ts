@@ -1,11 +1,11 @@
 import { useContext } from 'react';
-import { WebSocketContext } from '../bootstrap/web-socket-provider';
+import { WebSocketContext, type ApiClient } from '../bootstrap/web-socket-provider';
 
-export function useWebSocketClient() {
+export function useWebSocketClient(): ApiClient {
   const client = useContext(WebSocketContext);
 
   if (client === null) {
-    throw new Error('WebSocket client not initialized');
+    throw new Error('API client not initialized');
   }
 
   return client;

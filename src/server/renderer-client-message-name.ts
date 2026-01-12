@@ -110,6 +110,9 @@ export const RendererClientMessageName = {
   DeleteDemosFromDatabase: 'delete-demos-from-database',
   ImportDataFromV2Backup: 'import-data-from-v2-backup',
   CapturePlayerView: 'capture-player-view',
+  Login: 'login',
+  Logout: 'logout',
+  CheckAuth: 'check-auth',
 } as const;
 
 export type RendererClientMessageName = (typeof RendererClientMessageName)[keyof typeof RendererClientMessageName];

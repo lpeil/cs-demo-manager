@@ -1,42 +1,55 @@
 import type { ReactNode } from 'react';
-import React, { createContext, useRef, useState } from 'react';
-import { Trans, useLingui } from '@lingui/react/macro';
+import React, { createContext, useState, useMemo } from 'react';
+import { Trans } from '@lingui/react/macro';
 import { Status } from 'csdm/common/types/status';
-import { WebSocketClient } from '../web-socket-client';
+import { HybridApiClient } from '../api/hybrid-api-client';
 import { Loading } from './loading';
 import { LoadingError } from './loading-error';
 import { useRegisterWebSocketListeners } from './use-register-web-socket-listeners';
+import type { RendererServerMessageName, RendererServerMessagePayload } from 'csdm/server/renderer-server-message-name';
+import type { RendererClientMessageName } from 'csdm/server/renderer-client-message-name';
+import type { SendableMessage } from 'csdm/ui/web-socket-client';
 
-export const WebSocketContext = createContext<WebSocketClient | null>(null);
+// Tipo comum para compatibilidade
+export type ApiClient = {
+  on: <MessageName extends RendererServerMessageName>(
+    name: MessageName,
+    listener: (payload: RendererServerMessagePayload[MessageName]) => void,
+  ) => void;
+  off: <MessageName extends RendererServerMessageName>(
+    name: MessageName,
+    listener: (payload: RendererServerMessagePayload[MessageName]) => void,
+  ) => void;
+  removeAllEventListeners: (name: RendererServerMessageName) => void;
+  send: <MessageName extends RendererClientMessageName>(message: SendableMessage<MessageName>) => Promise<unknown>;
+  isConnected: boolean;
+};
+
+export const WebSocketContext = createContext<ApiClient | null>(null);
 
 type Props = {
   children: ReactNode;
 };
 
 export function WebSocketProvider({ children }: Props) {
-  const clientRef = useRef<WebSocketClient | null>(null);
   const [status, setStatus] = useState<Status>(Status.Loading);
-  const [error, setError] = useState('');
-  const { t } = useLingui();
+  const [error] = useState('');
 
-  const getClient = () => {
-    if (clientRef.current === null) {
-      const onConnectionSuccess = () => {
-        setStatus(Status.Success);
-      };
+  const client = useMemo(() => {
+    const onConnectionSuccess = () => {
+      setStatus(Status.Success);
+    };
 
-      const onConnectionError = (event: CloseEvent) => {
-        const code = event.code;
-        setError(t`The connection to the WebSocket server failed with code ${code}.`);
-        setStatus(Status.Error);
-      };
+    const onConnectionError = () => {
+      // HTTP sempre funciona, então apenas logar o erro do WebSocket
+      // Não definir como erro, pois HTTP ainda funciona
+      setStatus(Status.Success); // HTTP está disponível
+    };
 
-      clientRef.current = new WebSocketClient(onConnectionSuccess, onConnectionError);
-    }
+    return new HybridApiClient(onConnectionSuccess, onConnectionError);
+  }, []);
 
-    return clientRef.current;
-  };
-  const client: WebSocketClient = getClient();
+  // Sempre chamar o hook (regras do React)
   useRegisterWebSocketListeners(client);
 
   if (status === Status.Loading) {

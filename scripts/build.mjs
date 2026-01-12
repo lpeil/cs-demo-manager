@@ -41,14 +41,44 @@ async function buildRendererProcessBundle() {
   });
 }
 
-async function buildWebSocketServerBundle() {
+// Plugin to resolve csdm alias and mark npm packages as external
+const markNpmPackagesAsExternal = {
+  name: 'mark-npm-packages-as-external',
+  setup(build) {
+    // First, resolve csdm alias
+    build.onResolve({ filter: /^csdm/ }, (args) => {
+      const pathWithoutAlias = args.path.replace(/^csdm/, '');
+      let resolvedPath = path.join(srcFolderPath, pathWithoutAlias);
+      // Add .ts extension if no extension is present
+      if (!path.extname(resolvedPath)) {
+        resolvedPath += '.ts';
+      }
+      return {
+        path: resolvedPath,
+        namespace: 'file',
+      };
+    });
+    
+    // Then, mark all other npm packages as external
+    build.onResolve({ filter: /^[^./]|^\.[^./]|^\.\.[^/]/ }, (args) => {
+      // Don't mark 'csdm' as external - it's already resolved above
+      if (args.path.startsWith('csdm')) {
+        return;
+      }
+      return { path: args.path, external: true };
+    });
+  },
+};
+
+async function buildServerBundle() {
   await esbuild.build({
-    entryPoints: [path.join(srcFolderPath, 'server/server.ts')],
+    entryPoints: [path.join(srcFolderPath, 'server/start-server.ts')],
     outfile: path.join(outFolderPath, 'server.js'),
     bundle: true,
     sourcemap: 'linked',
     minify: true,
     platform: 'node',
+    format: 'esm', // Use ESM format to support import.meta.url
     target: `node${node}`,
     mainFields: ['module', 'main'],
     external: [
@@ -63,52 +93,12 @@ async function buildWebSocketServerBundle() {
     alias: {
       // Force fdir to use the CJS version to avoid createRequire(import.meta.url) not working
       fdir: './node_modules/fdir/dist/index.cjs',
+      // csdm alias is handled by the markNpmPackagesAsExternal plugin
     },
-    plugins: [nativeNodeModulesPlugin],
+    plugins: [nativeNodeModulesPlugin, markNpmPackagesAsExternal],
   });
 }
 
-async function buildMainProcessBundle() {
-  await esbuild.build({
-    entryPoints: [path.join(srcFolderPath, 'electron-main/main.ts')],
-    outfile: path.join(outFolderPath, 'main.js'),
-    bundle: true,
-    sourcemap: 'linked',
-    minify: true,
-    platform: 'node',
-    target: `node${node}`,
-    mainFields: ['module', 'main'],
-    external: ['electron'],
-    define: commonDefine,
-    plugins: [nativeNodeModulesPlugin],
-  });
-
-  async function copyTranslations() {
-    const translationsFolder = path.resolve(srcFolderPath, 'electron-main', 'translations');
-    const outputFolder = path.resolve(outFolderPath, 'translations');
-    await fs.copy(translationsFolder, outputFolder);
-  }
-
-  await copyTranslations();
-}
-
-async function buildPreloadBundle() {
-  await esbuild.build({
-    entryPoints: [path.join(srcFolderPath, 'preload/preload.ts')],
-    outfile: path.join(outFolderPath, 'preload.js'),
-    bundle: true,
-    sourcemap: 'inline',
-    minify: true,
-    platform: 'node',
-    target: `node${node}`,
-    mainFields: ['module', 'main'],
-    external: ['electron'],
-    define: {
-      ...commonDefine,
-    },
-    plugins: [nativeNodeModulesPlugin],
-  });
-}
 
 async function buildCliBundle() {
   await esbuild.build({
@@ -136,7 +126,7 @@ async function buildCliBundle() {
 
 try {
   await buildRendererProcessBundle();
-  await Promise.all([buildWebSocketServerBundle(), buildMainProcessBundle(), buildPreloadBundle(), buildCliBundle()]);
+  await Promise.all([buildServerBundle(), buildCliBundle()]);
 } catch (error) {
   console.error(error);
   process.exit(1);

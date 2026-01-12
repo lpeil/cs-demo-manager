@@ -13,6 +13,7 @@ import { DialogProvider } from 'csdm/ui/components/dialogs/dialog-provider';
 import { ToastsProvider } from 'csdm/ui/components/toasts/toasts-provider';
 import { SettingsOverlayProvider } from 'csdm/ui/settings/settings-overlay-provider';
 import { APP_ELEMENT_ID } from 'csdm/ui/shared/element-ids';
+import { AuthProvider } from 'csdm/ui/auth/auth-provider';
 
 function App() {
   return (
@@ -23,15 +24,17 @@ function App() {
           <ArgumentsProvider>
             <ToastsProvider>
               <SettingsProvider>
-                <WebSocketProvider>
-                  <DialogProvider inertElementId={APP_ELEMENT_ID}>
-                    <DatabaseLoader>
-                      <SettingsOverlayProvider>
-                        <AppLoader />
-                      </SettingsOverlayProvider>
-                    </DatabaseLoader>
-                  </DialogProvider>
-                </WebSocketProvider>
+                <AuthProvider>
+                  <WebSocketProvider>
+                    <DialogProvider inertElementId={APP_ELEMENT_ID}>
+                      <DatabaseLoader>
+                        <SettingsOverlayProvider>
+                          <AppLoader />
+                        </SettingsOverlayProvider>
+                      </DatabaseLoader>
+                    </DialogProvider>
+                  </WebSocketProvider>
+                </AuthProvider>
               </SettingsProvider>
             </ToastsProvider>
           </ArgumentsProvider>

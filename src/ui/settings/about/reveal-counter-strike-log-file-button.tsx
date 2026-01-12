@@ -2,7 +2,7 @@ import React, { type ReactNode } from 'react';
 import { Trans } from '@lingui/react/macro';
 import { Button } from 'csdm/ui/components/buttons/button';
 import { Game } from 'csdm/common/types/counter-strike';
-import { isSuccessResult } from 'csdm/preload/preload-result';
+import { isSuccessResult } from 'csdm/common/types/preload-result';
 import { ErrorCode } from 'csdm/common/error-code';
 import { useShowToast } from 'csdm/ui/components/toasts/use-show-toast';
 

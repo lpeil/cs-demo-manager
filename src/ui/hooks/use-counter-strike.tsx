@@ -50,10 +50,20 @@ export function useCounterStrike() {
   };
 
   const watchDemo = async (options: WatchDemoPayload) => {
-    await client.send({
+    // Na versão web, usar URL Steam por padrão
+    const result = await client.send({
       name: RendererClientMessageName.WatchDemo,
-      payload: options,
+      payload: {
+        ...options,
+        useSteamUrl: true, // Usar URL Steam na versão web
+      },
     });
+
+    // Se o resultado contém uma URL Steam, abrir no navegador
+    if (result && typeof result === 'object' && 'steamUrl' in result && result.steamUrl) {
+      // Abrir URL Steam - o navegador redirecionará para o Steam
+      window.location.href = result.steamUrl;
+    }
   };
 
   const watchPlayerLowlights = async (options: WatchPlayerLowlightsPayload) => {

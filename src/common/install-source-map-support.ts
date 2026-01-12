@@ -7,5 +7,10 @@
  * If we don't use the module "source-map-support", sourcemaps will point to minified JS files path that are hard to read.
  *
  * --enable-source-maps Node.js doc: https://nodejs.org/docs/latest-v18.x/api/cli.html#--enable-source-maps
+ *
+ * Note: In ESM format, we need to use the .js extension or use createRequire for CommonJS modules.
+ * Since source-map-support is a CommonJS module, we use createRequire to import it.
  */
-import 'source-map-support/register';
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+require('source-map-support/register');

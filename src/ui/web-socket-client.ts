@@ -18,7 +18,7 @@ type SendableMessagePayload<MessageName extends RendererClientMessageName> = Par
   RendererMessageHandlers[MessageName]
 >[0];
 
-type SendableMessage<MessageName extends RendererClientMessageName = RendererClientMessageName> = {
+export type SendableMessage<MessageName extends RendererClientMessageName = RendererClientMessageName> = {
   name: MessageName;
 } & (SendableMessagePayload<MessageName> extends void
   ? object
